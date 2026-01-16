@@ -13,9 +13,9 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { useMainStore } from 'src/stores/main.store'
 
-const END_TIME = new Date('2025-12-12 18:00:00')
-
+const mainStore = useMainStore()
 const now = ref(new Date());
 
 let timer: ReturnType<typeof setInterval>;
@@ -28,7 +28,7 @@ onUnmounted(() => {
     clearInterval(timer);
 });
 
-const timeDifference = computed(() => Math.max(0, END_TIME.getTime() - now.value.getTime()));
+const timeDifference = computed(() => Math.max(0, mainStore.getEndTime.getTime() - now.value.getTime()));
 
 const days = computed(() => Math.floor(timeDifference.value / (1000 * 60 * 60 * 24)));
 const hours = computed(() => Math.floor((timeDifference.value / (1000 * 60 * 60)) % 24));

@@ -1,6 +1,9 @@
 <template>
   <q-page padding>
-    <div class="text-h3 q-pa-md">Apostinha</div>
+    <div class="row items-center justify-between q-pa-md">
+      <div class="text-h4">Apostinha</div>
+      <YearSelector />
+    </div>
 
     <CountdownCard />
 
@@ -18,6 +21,7 @@ import SummaryTable from 'src/components/SummaryTable.vue';
 import LineChart from "components/LineChart.vue"
 import LineChartStocks from "components/LineChartStocks.vue"
 import CountdownCard from 'src/components/CountdownCard.vue';
+import YearSelector from 'src/components/YearSelector.vue';
 import { type DataI, useMainStore } from 'src/stores/main.store';
 import { computed } from 'vue';
 

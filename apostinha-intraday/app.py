@@ -1,29 +1,21 @@
 import json
-import os
 import yfinance as yf
 from datetime import datetime
 import pandas as pd
 
-START_DATE = '2024-12-13'
-CONTEST_END_DATE = '2025-12-13'
+START_DATE = '2026-01-13'
+CONTEST_END_DATE = '2026-12-15'
 
 TICKERS = {
-    'Ari': ['BBAS3', 'VALE3', 'EQTL3'],
-    'Vai': ['MDIA3', 'NATU3', 'FLRY3'],  # mantém o lógico "NATU3"
-    'Jai': ['ITUB4', 'LREN3', 'SUZB3'],
+    'Ari': ['ITUB4', 'MULT3', 'EMBJ3'],
+    'Vai': ['ENGI11', 'TEND3', 'PRIO3'],
+    'Jai': ['BPAC11', 'ANIM3', 'SUZB3'],
     'IBOV': ['^BVSP']
 }
 
-# Data de corte para NATU3 (a partir daqui baixa NATU3 do Yahoo)
-NATU3_CUTOFF = '2025-07-02'
-
 # Saída
 BUCKET_NAME = 'teleturfe-website-prod'
-OBJECT_KEY = 'portfolios.json'
-
-# Caminho do natu3.json empacotado com a Lambda
-# (/var/task é o diretório do código em tempo de execução)
-NATU3_JSON_BUNDLED_PATH = os.path.join(os.path.dirname(__file__), 'natu3.json')
+OBJECT_KEY = 'portfolios_2026.json'
 
 
 def _ensure_datetime_index_sorted(df: pd.DataFrame) -> pd.DataFrame:
@@ -31,101 +23,6 @@ def _ensure_datetime_index_sorted(df: pd.DataFrame) -> pd.DataFrame:
     df = df[~df.index.isna()]
     df.sort_index(inplace=True)
     return df
-
-
-def _load_natu3_json_from_bundle() -> dict | None:
-    """Carrega natu3.json do próprio bundle da Lambda (sem S3)."""
-    try:
-        with open(NATU3_JSON_BUNDLED_PATH, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except Exception:
-        return None
-
-
-def _parse_natu3_series_from_json(payload: dict) -> pd.Series:
-    """
-    Constrói uma pd.Series (index datetime, valores float) a partir do json.
-    Aceita formatos:
-      {"dates":[...], "prices":[...]}  (ou "values"/"closes"/"series")
-    ou um array simples numérico (mas aí precisa do campo "dates").
-    Retorna Series possivelmente vazia se não conseguir parsear.
-    """
-    if payload is None:
-        return pd.Series(dtype='float64')
-
-    # Tenta extrair datas
-    dates = None
-    if isinstance(payload, dict) and 'dates' in payload and isinstance(payload['dates'], list):
-        dates = payload['dates']
-
-    # Tenta extrair preços
-    candidates = ['prices', 'values', 'closes', 'series']
-    prices = None
-    if isinstance(payload, dict):
-        for k in candidates:
-            if k in payload and isinstance(payload[k], list):
-                prices = payload[k]
-                break
-        # Caso tenha uma chave "data" com lista
-        if prices is None and isinstance(payload.get('data'), list):
-            prices = payload['data']
-
-    # Caso o arquivo seja APENAS um array (sem chaves)
-    if prices is None and isinstance(payload, list):
-        prices = payload
-
-    if dates is None or prices is None:
-        return pd.Series(dtype='float64')
-
-    if len(dates) != len(prices):
-        n = min(len(dates), len(prices))
-        dates = dates[:n]
-        prices = prices[:n]
-
-    try:
-        idx = pd.to_datetime(dates, errors='coerce')
-        s = pd.to_numeric(pd.Series(prices, index=idx),
-                          errors='coerce').dropna()
-        s.index = pd.to_datetime(s.index)
-        s = s.sort_index()
-        return s
-    except Exception:
-        return pd.Series(dtype='float64')
-
-
-def _merge_natu3_json_pre_cutoff(close_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Lê natu3.json empacotado e injeta os valores APENAS para datas < NATU3_CUTOFF na coluna 'NATU3.SA'.
-    A partir do cutoff, mantém o que vier do Yahoo. Se não houver coluna NATU3.SA ainda,
-    cria a coluna com base no índice do DataFrame.
-    """
-    payload = _load_natu3_json_from_bundle()
-    s_json = _parse_natu3_series_from_json(payload)
-    if s_json.empty:
-        return close_df
-
-    cutoff = pd.to_datetime(NATU3_CUTOFF)
-
-    # Apenas o trecho anterior ao cutoff
-    pre_cut = s_json.loc[s_json.index < cutoff]
-    if pre_cut.empty:
-        return close_df
-
-    # Garante índice ordenado no df principal
-    close_df = _ensure_datetime_index_sorted(close_df)
-
-    # Garante existência da coluna NATU3.SA
-    if 'NATU3.SA' not in close_df.columns:
-        close_df['NATU3.SA'] = pd.NA
-
-    # Garante que todas as datas do pre_cut estão presentes no índice do DF
-    new_index = sorted(set(close_df.index.union(pre_cut.index)))
-    close_df = close_df.reindex(new_index)
-
-    # Sobrescreve valores < cutoff com os do JSON (preço ajustado esperado)
-    close_df.loc[pre_cut.index, 'NATU3.SA'] = pre_cut.astype(float).values
-
-    return close_df
 
 
 def lambda_handler(event, context):
@@ -153,9 +50,6 @@ def lambda_handler(event, context):
             pass
 
     close_df = _ensure_datetime_index_sorted(close_df)
-
-    # Injeta histórico pré-corte da Natura a partir do natu3.json (bundle)
-    close_df = _merge_natu3_json_pre_cutoff(close_df)
 
     # Injeta intraday (1m) diretamente nas colunas finais — preserva retorno intraday no front
     today_dt = pd.Timestamp.today().normalize()

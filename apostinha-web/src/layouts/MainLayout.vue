@@ -7,7 +7,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, watch } from 'vue'
 import { type JsonI, useMainStore } from 'stores/main.store'
 
 const mainStore = useMainStore()
@@ -21,17 +21,23 @@ const fetchPortfolios = async (showLoading = false) => {
 
   if (showLoading) mainStore.loading = true
   try {
-    const response = await fetch('/portfolios.json', { cache: 'no-store' })
+    const fileName = mainStore.selectedYear === 2025 ? 'portfolios_2025.json' : 'portfolios_2026.json'
+    const response = await fetch(`/${fileName}`, { cache: 'no-store' })
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const respJson = (await response.json()) as JsonI
     mainStore.portfolio = respJson
   } catch (err) {
-    console.error('Failed to refresh portfolios.json', err)
+    console.error('Failed to refresh portfolio data', err)
   } finally {
     if (showLoading) mainStore.loading = false
     inFlight = false
   }
 }
+
+// Watch for year changes and refetch data
+watch(() => mainStore.selectedYear, async () => {
+  await fetchPortfolios(true)
+})
 
 onMounted(async () => {
   await fetchPortfolios(true) // initial load with spinner

@@ -10,7 +10,8 @@
                     <q-avatar v-else size="24px" text-color="black" font-size="24px">💩
                     </q-avatar>
                     <div class="text-h6 q-ml-sm">{{ portfolio }}</div>
-                    <q-badge class="q-ml-sm" color="orange" v-if="vencedor">Vencedor 2025</q-badge>
+                    <q-badge class="q-ml-sm" color="orange" v-if="vencedor">Vencedor {{ mainStore.selectedYear
+                        }}</q-badge>
                 </div>
                 <div class="text-h6" :class="getColor(thisPortfolio?.portfolioReturn?.at(-1))">{{
                     ((thisPortfolio?.portfolioReturn?.at(-1) ?? 0) * 100).toFixed(2) }}%</div>
@@ -80,7 +81,9 @@ const tickers = computed(() => Object.keys(thisPortfolio.value?.assets ?? {}))
 
 console.log(new Date().toISOString())
 
-const vencedor = computed(() => props.index == 0 && new Date() > new Date('2025-12-12 18:00:00'))
+const vencedor = computed(() => {
+    return props.index == 0 && new Date() > mainStore.getEndTime
+})
 
 const getColor = (value?: number) => {
     return value && value > 0 ? 'text-green-4' : 'text-red-4'

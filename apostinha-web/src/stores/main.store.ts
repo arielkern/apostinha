@@ -1,5 +1,5 @@
 import { defineStore, acceptHMRUpdate } from 'pinia';
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 
 interface PortfolioI {
   assets: Record<string, number[]>
@@ -20,8 +20,20 @@ export interface JsonI {
 export const useMainStore = defineStore('main', () => {
   const portfolio = ref<JsonI>()
   const loading = ref(false)
+  const selectedYear = ref<2025 | 2026>(2026)
 
-  return { portfolio, loading }
+  // Year configuration with end times
+  const yearConfig = {
+    2025: { endTime: '2025-12-12 21:00:00' },
+    2026: { endTime: '2026-12-15 21:00:00' }
+  }
+
+  // Get end time for current selected year
+  const getEndTime = computed(() => {
+    return new Date(yearConfig[selectedYear.value].endTime)
+  })
+
+  return { portfolio, loading, selectedYear, getEndTime }
 });
 
 if (import.meta.hot) {

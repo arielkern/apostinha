@@ -196,7 +196,7 @@ Resources:
           AcmCertificateArn: arn:aws:acm:us-east-1:074102846373:certificate/ba7c9dc3-8135-421e-afbd-249bea85b887
           SslSupportMethod: "sni-only"
         CacheBehaviors:
-          - PathPattern: 'portfolios.json'  # Change to your specific file path or pattern.
+          - PathPattern: 'portfolios_2026.json'  # Change to your specific file path or pattern.
             TargetOriginId: S3Origin
             ViewerProtocolPolicy: redirect-to-https
             AllowedMethods:
