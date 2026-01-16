@@ -1,0 +1,226 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  apostinha
+
+  Sample SAM Template for apostinha
+
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Timeout: 150
+
+Resources:
+  ApostinhaIntradayFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: apostinha-intraday/
+      Handler: app.lambda_handler
+      Runtime: python3.13
+      Timeout: 180
+      Architectures:
+        - x86_64
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Ref S3BucketWebsite
+        # - Statement:
+        #     Effect: Allow
+        #     Action:
+        #       - cloudfront:CreateInvalidation
+        #     Resource: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${WebsiteCloudFrontDistribution}"
+
+  EventBridgeRule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: "cron(0/1 13-21 ? * MON-FRI *)"
+      Targets:
+        - Arn: !GetAtt ApostinhaIntradayFunction.Arn
+          Id: MyLambdaTarget
+      State: ENABLED
+
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt ApostinhaIntradayFunction.Arn
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt EventBridgeRule.Arn
+      
+
+  S3BucketWebsite:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: teleturfe-website-prod
+      WebsiteConfiguration:
+        IndexDocument: "index.html"
+
+  CloudFrontOAI:
+    Type: "AWS::CloudFront::CloudFrontOriginAccessIdentity"
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: "OAI for accessing the S3 bucket"
+
+  S3BucketWebsitePolicy:
+    Type: "AWS::S3::BucketPolicy"
+    Properties:
+      Bucket: !Ref S3BucketWebsite
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              CanonicalUser: !GetAtt CloudFrontOAI.S3CanonicalUserId
+            Action:
+              - "s3:GetObject"
+            Resource:
+              - !Sub "arn:aws:s3:::${S3BucketWebsite}/*"
+
+  WebsiteCloudFrontFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: basic-auth-function
+      FunctionConfig:
+        Comment: CloudFront function for basic authentication
+        Runtime: cloudfront-js-2.0
+      AutoPublish: true
+      FunctionCode: |
+        function handler(event) {
+        const request = event.request || {};
+        const headers = request.headers || {};
+        const cookies = request.cookies || {};
+        const uri = request.uri || '/';
+
+        // --- CONFIG ---
+        const user = 'apostinha';
+        const pass = 'apostinha';
+        const expectedAuth = 'Basic ' + btoa(user + ':' + pass);
+
+        const cookieName = 'cf_basic';
+        const cookieValue = '1';                     // simple sentinel
+        const maxAge = 60 * 60 * 24 * 30;            // 30 days
+
+        // Build redirect location preserving querystring
+        function buildLocation(req) {
+          const qs = req.querystring || {};
+          const parts = [];
+          for (const k in qs) {
+            if (Object.prototype.hasOwnProperty.call(qs, k)) {
+              const v = qs[k] && qs[k].value ? qs[k].value : '';
+              parts.push(encodeURIComponent(k) + '=' + encodeURIComponent(v));
+            }
+          }
+          return req.uri + (parts.length ? ('?' + parts.join('&')) : '');
+        }
+
+        // Already trusted by cookie?
+        const hasCookie = cookies[cookieName] && cookies[cookieName].value === cookieValue;
+
+        if (!hasCookie) {
+          const auth = headers.authorization && headers.authorization.value;
+
+          if (auth === expectedAuth) {
+            // First successful Basic login: remember via cookie and bounce once
+            return {
+              statusCode: 302,
+              statusDescription: 'Found',
+              headers: {
+                location:        { value: buildLocation(request) },
+                'cache-control': { value: 'no-store' }
+              },
+              cookies: {
+                [cookieName]: {
+                  value: cookieValue,
+                  attributes: `Max-Age=${maxAge}; Path=/; Secure; HttpOnly; SameSite=Lax`
+                }
+              }
+            };
+          }
+
+          const REALM = 'Apostinha Teleturfe';
+
+          // Not authenticated yet: trigger browser Basic Auth dialog
+          return {
+            statusCode: 401,
+            statusDescription: 'Unauthorized',
+            headers: {
+              'www-authenticate': { value: `Basic realm="${REALM}", charset="UTF-8"` },
+              'cache-control':    { value: 'no-store' }
+            }
+          };
+        }
+
+        const lastSeg = uri.split('/').pop();
+        if (/\/$/.test(uri) || (lastSeg && lastSeg.indexOf('.') === -1)) {
+          request.uri = uri.replace(/\/$/, '') + '/index.html';
+        }
+
+        return request;
+        }
+
+
+  WebsiteCloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          - DomainName: !GetAtt S3BucketWebsite.RegionalDomainName
+            Id: S3Origin
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub "origin-access-identity/cloudfront/${CloudFrontOAI}"
+        DefaultRootObject: index.html
+        CustomErrorResponses:
+          - ErrorCode: 404
+            ResponsePagePath: /index.html
+            ResponseCode: 200
+            ErrorCachingMinTTL: 0
+          - ErrorCode: 403
+            ResponsePagePath: /index.html
+            ResponseCode: 200
+            ErrorCachingMinTTL: 0
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - "GET"
+            - "HEAD"
+          ForwardedValues: # This is the missing parameter
+            QueryString: true
+            Cookies:
+              Forward: "none"
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt WebsiteCloudFrontFunction.FunctionMetadata.FunctionARN
+        Aliases:
+          - www.teleturfe.com.br
+        ViewerCertificate:
+          AcmCertificateArn: arn:aws:acm:us-east-1:074102846373:certificate/ba7c9dc3-8135-421e-afbd-249bea85b887
+          SslSupportMethod: "sni-only"
+        CacheBehaviors:
+          - PathPattern: 'portfolios.json'  # Change to your specific file path or pattern.
+            TargetOriginId: S3Origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods:
+              - GET
+              - HEAD
+            CachedMethods:
+              - GET
+              - HEAD
+            ForwardedValues:
+              QueryString: false
+              Cookies:
+                Forward: none
+            DefaultTTL: 60   # Cache for 60 seconds.
+            MinTTL: 60
+            MaxTTL: 60
+        Enabled: true
+
+  DNSRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: Z0387661NFWSIEZKFRQ6
+      Name: www.teleturfe.com.br.
+      Type: A
+      AliasTarget:
+        HostedZoneId: Z2FDTNDATAQYW2 # This is the hosted zone ID for CloudFront distributions
+        DNSName: !GetAtt WebsiteCloudFrontDistribution.DomainName
+
