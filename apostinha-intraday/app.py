@@ -51,17 +51,22 @@ def lambda_handler(event, context):
 
     close_df = _ensure_datetime_index_sorted(close_df)
 
-    # Injeta intraday (1m) diretamente nas colunas finais — preserva retorno intraday no front
+    # Tenta usar close diário para hoje; se não disponível, usa intraday
     today_dt = pd.Timestamp.today().normalize()
     for ticker in sorted(set(tickers_b3)):
         try:
+            # Verifica se já tem close de hoje
+            if today_dt in close_df.index and pd.notna(close_df.loc[today_dt, ticker]):
+                # Já tem close de hoje, mantém
+                continue
+
+            # Sem close ainda, tenta intraday (1m)
             h = yf.Ticker(ticker).history(
                 period="1d", interval="1m", auto_adjust=True)
             if h.empty or 'Close' not in h.columns:
                 h = yf.Ticker(ticker).history(period="1d", auto_adjust=True)
             if not h.empty and 'Close' in h.columns:
                 last_px = float(h['Close'].dropna().iloc[-1])
-                # atualiza linha do dia
                 close_df.loc[today_dt, ticker] = last_px
         except Exception:
             # Erros transitórios do Yahoo: ignora
